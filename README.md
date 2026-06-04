@@ -20,6 +20,7 @@
 ```bash
 git clone https://github.com/wwb-bwdm/PHM-Net.git
 cd PHM-Net
+```
 2.安装环境
 pip install -r requirements.txt
 ## 运行指令
