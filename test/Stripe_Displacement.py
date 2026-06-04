@@ -3,10 +3,10 @@ import cv2
 import numpy as np
 from glob import glob
 from scipy.spatial.distance import cdist
-import time
+import re
+
 
 def detect_stripe_centers(mask, min_width=10):
-    """检测条纹中心点（从左到右排序）"""
     h, w = mask.shape
     _, binary = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
 
@@ -36,7 +36,6 @@ def detect_stripe_centers(mask, min_width=10):
 
 
 def select_16_benchmark_stripes_center(benchmark_centers):
-    """基准图片：居中选取16条条纹，提取16条内最右条纹"""
     total_benchmark = len(benchmark_centers)
     if total_benchmark < 16:
         raise ValueError(f"基准图片总条纹数不足16条（实际{total_benchmark}条）")
@@ -49,7 +48,6 @@ def select_16_benchmark_stripes_center(benchmark_centers):
 
 
 def match_benchmark_rightmost_to_target_left(benchmark_16_rightmost, target_centers, max_dist_threshold=50):
-    """目标图片：匹配基准16条内最右条纹的“左侧最近条纹”"""
     total_target = len(target_centers)
     if total_target < 16:
         raise ValueError(f"目标图片总条纹数不足16条")
@@ -74,7 +72,6 @@ def match_benchmark_rightmost_to_target_left(benchmark_16_rightmost, target_cent
 
 
 def target_select_16_from_rightmost(target_centers, target_match_rightmost_idx):
-    """目标图片：从匹配条纹向左取16条"""
     target_16_start_idx = target_match_rightmost_idx - 15
     target_16_end_idx = target_match_rightmost_idx + 1
 
@@ -86,79 +83,96 @@ def target_select_16_from_rightmost(target_centers, target_match_rightmost_idx):
 
 
 def calculate_diffs_and_stats(benchmark_16, target_16):
-    """计算16条差值和统计值"""
     diffs = [benchmark_16[i] - target_16[i] for i in range(16)]
     abs_diffs = [abs(d) for d in diffs]
     all_abs_avg = np.mean(abs_diffs)
     return all_abs_avg
 
 
-def get_matched_image_pairs(folder_benchmark, folder_target):
-    """获取名称匹配的图片对"""
+def get_group_pairs(image_folder):
     img_extensions = ["*.png", "*.jpg", "*.jpeg", "*.bmp"]
-    bench_dict = {os.path.basename(p): p for ext in img_extensions for p in glob(os.path.join(folder_benchmark, ext))}
-    target_dict = {os.path.basename(p): p for ext in img_extensions for p in glob(os.path.join(folder_target, ext))}
-    common_names = set(bench_dict.keys()) & set(target_dict.keys())
-    if not common_names:
-        raise ValueError("无名称匹配的图片")
-    return [(bench_dict[name], target_dict[name], name) for name in sorted(common_names)]
+    img_paths = []
+    for ext in img_extensions:
+        img_paths.extend(glob(os.path.join(image_folder, ext)))
+
+    pattern = re.compile(r'(\d+)_(\d+)_pred')
+    group_map = {}
+
+    for path in img_paths:
+        filename = os.path.basename(path)
+        match = pattern.search(filename)
+        if not match:
+            continue
+
+        group_num = int(match.group(1))
+        img_num = int(match.group(2))
+
+        if group_num not in group_map:
+            group_map[group_num] = {}
+        group_map[group_num][img_num] = path
+
+    pairs = []
+    for group_num in sorted(group_map.keys()):
+        item = group_map[group_num]
+        if 1 in item and 2 in item:
+            bench_path = item[1]
+            target_path = item[2]
+            pairs.append((bench_path, target_path, group_num))
+
+    if not pairs:
+        raise ValueError("未找到匹配的图片组")
+    return pairs
 
 
-def process_image_pairs_no_outlier_removal(folder_benchmark, folder_target, min_width=10, max_dist_threshold=50):
-    for folder in [folder_benchmark, folder_target]:
-        if not os.path.exists(folder):
-            return
-
-    try:
-        image_pairs = get_matched_image_pairs(folder_benchmark, folder_target)
-        total_pairs = len(image_pairs)
-    except Exception as e:
+def process_single_folder(image_folder, min_width=10, max_dist_threshold=50):
+    if not os.path.exists(image_folder):
+        print(f"文件夹不存在：{image_folder}")
         return
 
-    for pair_idx, (bench_path, target_path, img_name) in enumerate(image_pairs, 1):
+    try:
+        image_pairs = get_group_pairs(image_folder)
+    except Exception as e:
+        print(e)
+        return
+
+    for bench_path, target_path, group_num in image_pairs:
         try:
-            # 基准图片处理
             bench_img = cv2.imread(bench_path, cv2.IMREAD_GRAYSCALE)
             bench_img = cv2.resize(bench_img, (800, 550))
             if bench_img is None:
                 continue
-            
-            # ===================== 自动换算系数（按你的公式） =====================
+
             h, w = bench_img.shape[:2]
-            CONVERSION_FACTOR = (800 * 4.5) / w  # 自动计算，任何宽度都支持
-            # ====================================================================
+            CONVERSION_FACTOR = (800 * 4.5) / w
 
             bench_centers = detect_stripe_centers(bench_img, min_width)
             bench_16, bench_16_rightmost = select_16_benchmark_stripes_center(bench_centers)
 
-            # 目标图片处理
             target_img = cv2.imread(target_path, cv2.IMREAD_GRAYSCALE)
             if target_img is None:
                 continue
             target_centers = detect_stripe_centers(target_img, min_width)
-            target_match_idx = match_benchmark_rightmost_to_target_left(bench_16_rightmost, target_centers, max_dist_threshold)
+            target_match_idx = match_benchmark_rightmost_to_target_left(bench_16_rightmost, target_centers,
+                                                                        max_dist_threshold)
             target_16 = target_select_16_from_rightmost(target_centers, target_match_idx)
 
-            # 计算位移
             all_abs_avg = calculate_diffs_and_stats(bench_16, target_16) * CONVERSION_FACTOR
 
-            # 只打印：序号 位移
-            print(f"{pair_idx} {all_abs_avg:.6f}")
+            print(f"{group_num} {all_abs_avg:.6f}")
 
         except Exception:
             continue
 
 
 if __name__ == "__main__":
-    # 配置参数
-    FOLDER_BENCHMARK = r"test_masks_4"
-    FOLDER_TARGET = r"test_masks_5"
+
+    IMAGE_FOLDER = r"E:\spy\800" 
+
     MIN_STRIPE_WIDTH = 10
     MAX_MATCH_DIST = 50
 
-    process_image_pairs_no_outlier_removal(
-        folder_benchmark=FOLDER_BENCHMARK,
-        folder_target=FOLDER_TARGET,
+    process_single_folder(
+        image_folder=IMAGE_FOLDER,
         min_width=MIN_STRIPE_WIDTH,
         max_dist_threshold=MAX_MATCH_DIST
     )

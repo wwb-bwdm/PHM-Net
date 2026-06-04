@@ -10,11 +10,12 @@ from typing import Union, List
 import math
 from glob import glob
 from scipy.spatial.distance import cdist
+import re
 
+# 模型参数反序列化的需要
 class TrainingConfig:
     pass
 
-# ===================== Axial Attention模块 =====================
 class AxialAttention(nn.Module):
     def __init__(self, in_channels, axis='height'):
         super().__init__()
@@ -53,26 +54,41 @@ class AxialAttention(nn.Module):
             out = out.reshape(B, W, C, H).permute(0, 2, 3, 1)
         return self.norm(out)
 
-# ===================== RedECA模块 =====================
-class RedECA_Module(nn.Module):
-    def __init__(self, channels, gamma=2, b=1):
+class LightGateAxial(nn.Module):
+    def __init__(self, c_skip: int, c_cond: int, r: int = 8):
         super().__init__()
-        t = int(abs((math.log(channels, 2) + b) / gamma))
-        k_size = t if t % 2 else t + 1
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv = nn.Conv1d(1, 1, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False)
-        self.sigmoid = nn.Sigmoid()
+        c_mid = max(8, c_skip // r)
+        self.chan_fc = nn.Sequential(
+            nn.Conv2d(c_skip + c_cond, c_mid, 1, bias=True),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(c_mid, c_skip, 1, bias=True)
+        )
+        self.spa_reduce = nn.Conv2d(c_skip + c_cond, c_skip, 1, bias=True)
+        self.ax_h = AxialAttention(c_skip, axis='height')
+        self.ax_w = AxialAttention(c_skip, axis='width')
+        self.spa_proj = nn.Conv2d(c_skip, 1, 1, bias=True)
 
-    def forward(self, x, red_map):
-        y = self.avg_pool(x)
-        red_weight = self.avg_pool(red_map)
-        y = y * (1 + red_weight)
-        y = self.conv(y.squeeze(-1).transpose(-1, -2))
-        y = y.transpose(-1, -2).unsqueeze(-1)
-        y = self.sigmoid(y)
-        return x * y.expand_as(x)
+        self.alpha_c = nn.Parameter(torch.tensor(0.0))
+        self.alpha_s = nn.Parameter(torch.tensor(0.0))
 
-# ===================== 基础模块 =====================
+        nn.init.zeros_(self.chan_fc[-1].bias)
+        nn.init.zeros_(self.spa_proj.bias)
+
+    def forward(self, skip, cond):
+        s_gap = F.adaptive_avg_pool2d(skip, 1)
+        c_gap = F.adaptive_avg_pool2d(cond, 1)
+        w_c = torch.sigmoid(self.chan_fc(torch.cat([s_gap, c_gap], dim=1)))
+
+        z = self.spa_reduce(torch.cat([skip, cond], dim=1))
+        y = z + self.ax_h(z) + self.ax_w(z)
+        m_s = torch.sigmoid(self.spa_proj(y))
+
+        gate_c = 1.0 + self.alpha_c * (2*w_c - 1.0)
+        gate_s = 1.0 + self.alpha_s * (2*m_s - 1.0)
+
+        out = skip * gate_c * gate_s
+        return out
+
 class ConvBNReLU(nn.Module):
     def __init__(self, in_ch: int, out_ch: int, kernel_size: int = 3, dilation: int = 1):
         super().__init__()
@@ -101,7 +117,24 @@ class UpConvBNReLU(ConvBNReLU):
             x1 = F.interpolate(x1, size=x2.shape[2:], mode='bilinear', align_corners=False)
         return self.relu(self.bn(self.conv(torch.cat([x1, x2], dim=1))))
 
-# ===================== RSU 模块 =====================
+class RedMask_Module(nn.Module):
+    def __init__(self, channels, gamma=2, b=1):
+        super().__init__()
+        t = int(abs((math.log(channels, 2) + b) / gamma))
+        k_size = t if t % 2 else t + 1
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.conv = nn.Conv1d(1, 1, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x, red_map):
+        y = self.avg_pool(x)
+        red_weight = self.avg_pool(red_map)
+        y = y * (1 + red_weight)
+        y = self.conv(y.squeeze(-1).transpose(-1, -2))
+        y = y.transpose(-1, -2).unsqueeze(-1)
+        y = self.sigmoid(y)
+        return x * y.expand_as(x)
+
 class RSU(nn.Module):
     def __init__(self, height: int, in_ch: int, mid_ch: int, out_ch: int):
         super().__init__()
@@ -115,7 +148,7 @@ class RSU(nn.Module):
         encode_list.append(ConvBNReLU(mid_ch, mid_ch, dilation=2))
         self.encode_modules = nn.ModuleList(encode_list)
         self.decode_modules = nn.ModuleList(decode_list)
-        self.red_eca = RedECA_Module(out_ch)
+        self.red_eca = RedMask_Module(out_ch)
         self.axial_h = AxialAttention(out_ch, axis='height')
         self.axial_w = AxialAttention(out_ch, axis='width')
         self.ax_gamma_h = nn.Parameter(torch.zeros(1))
@@ -158,7 +191,7 @@ class RSU4F(nn.Module):
             ConvBNReLU(mid_ch * 2, mid_ch, dilation=2),
             ConvBNReLU(mid_ch * 2, out_ch)
         ])
-        self.red_eca = RedECA_Module(out_ch)
+        self.red_eca = RedMask_Module(out_ch)
         self.axial_h = AxialAttention(out_ch, axis='height')
         self.axial_w = AxialAttention(out_ch, axis='width')
         self.ax_gamma_h = nn.Parameter(torch.zeros(1))
@@ -186,7 +219,6 @@ class RSU4F(nn.Module):
         x = x + self.ax_gamma_h * self.axial_h(x) + self.ax_gamma_w * self.axial_w(x)
         return x
 
-# ===================== U2Net模型 =====================
 class U2Net(nn.Module):
     def __init__(self, cfg: dict, out_ch: int = 1):
         super().__init__()
@@ -254,7 +286,6 @@ def u2net_lite_4ch(out_ch: int = 1):
     }
     return U2Net(cfg, out_ch)
 
-# ===================== 4通道数据预处理 =====================
 class Compose:
     def __init__(self, transforms): self.transforms = transforms
     def __call__(self, image, target):
@@ -284,7 +315,8 @@ class ToTensorWithRedMask:
         return red_mask.astype(np.float32) / 255.0
 
 class Resize4Ch:
-    def __init__(self, size): self.size = size if isinstance(size, (list, tuple)) else (size, size)
+    def __init__(self, size):
+        self.size = size if isinstance(size, (list, tuple)) else (size, size)
     def __call__(self, image, target):
         rgb = image[:3]
         red = image[3:4]
@@ -304,11 +336,10 @@ class SODPresetEval4Ch:
         self.transforms = Compose([
             ToTensorWithRedMask(),
             Resize4Ch(base_size),
-            Normalize4Ch(mean=(0.485, 0.456, 0.406, 0.5), std=(0.229, 0.224, 0.225, 0.25))
+            Normalize4Ch(mean=(0.485, 0.456, 0.406, 0.5), std=(0.229, 0.224, 0.224, 0.25))
         ])
     def __call__(self, img, target): return self.transforms(img, target)
 
-# ===================== 测试数据集 =====================
 def cat_list(images, fill_value=0):
     max_size = tuple(max(s) for s in zip(*[img.shape for img in images]))
     batch_shape = (len(images),) + max_size
@@ -336,109 +367,168 @@ class TestDataset4Ch(data.Dataset):
         imgs, _, fns, sizes = list(zip(*batch))
         return cat_list(imgs), torch.zeros(1), fns, sizes
 
-# ===================== 推理函数 =====================
 @torch.no_grad()
-def predict_mask(model, image_dir, save_dir, device, input_size=[320, 320]):
-    os.makedirs(save_dir, exist_ok=True)
-    dataset = TestDataset4Ch(image_dir, SODPresetEval4Ch(input_size))
-    loader = data.DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=TestDataset4Ch.collate_fn)
+def final_segmentation(model, data_loader, device, save_dir):
     model.eval()
-    for images, _, filenames, sizes in tqdm(loader, desc="分割中", leave=False):
+    os.makedirs(save_dir, exist_ok=True)
+    for images, _, filenames, sizes in tqdm(data_loader, desc="测试推理"):
         images = images.to(device)
         preds = model(images)
         h, w = sizes[0]
         for i, pred in enumerate(preds):
             pred = pred.cpu().squeeze().numpy()
             pred = cv2.resize(pred, (w, h)) * 255
-            cv2.imwrite(os.path.join(save_dir, filenames[i]), pred.astype(np.uint8))
+            cv2.imwrite(os.path.join(save_dir, f"{os.path.splitext(filenames[i])[0]}_pred.png"), pred.astype(np.uint8))
 
-# ===================== 条纹位移计算 =====================
 def detect_stripe_centers(mask, min_width=10):
     h, w = mask.shape
     _, binary = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
     white_pixels = np.where(binary == 255)
-    if len(white_pixels[0]) == 0: raise ValueError("无条纹")
+    if len(white_pixels[0]) == 0:
+        raise ValueError("未检测到白色像素（条纹）")
     x_coords = sorted(white_pixels[1])
     stripe_groups = []
-    current_group = [x_coords[0]]
+    current_group = [x_coords[0]] if x_coords else []
     for x in x_coords[1:]:
-        if x - current_group[-1] <= 1: current_group.append(x)
+        if x - current_group[-1] <= 1:
+            current_group.append(x)
         else:
             stripe_groups.append(current_group)
             current_group = [x]
-    stripe_groups.append(current_group)
-    centers = []
-    for g in stripe_groups:
-        L, R = min(g), max(g)
-        if R-L+1 >= min_width:
-            centers.append((L+R)/2)
-    return centers
+    if current_group:
+        stripe_groups.append(current_group)
+    stripe_centers = []
+    for group in stripe_groups:
+        left, right = min(group), max(group)
+        if (right - left + 1) >= min_width:
+            stripe_centers.append((left + right) / 2)
+    return stripe_centers
 
-def select_16_benchmark_stripes_center(c):
-    if len(c) < 16: raise ValueError("不足16条")
-    s = (len(c)-16)//2
-    return c[s:s+16], c[s:s+16][-1]
+def select_16_benchmark_stripes_center(benchmark_centers):
+    total_benchmark = len(benchmark_centers)
+    if total_benchmark < 16:
+        raise ValueError(f"基准图片总条纹数不足16条（实际{total_benchmark}条）")
+    start_idx = (total_benchmark - 16) // 2
+    end_idx = start_idx + 16
+    benchmark_16 = benchmark_centers[start_idx:end_idx]
+    benchmark_16_rightmost = benchmark_16[-1]
+    return benchmark_16, benchmark_16_rightmost
 
-def match_benchmark_rightmost_to_target_left(r, t, th=50):
-    tl = [x for x in t if x <= r]
-    if not tl: raise ValueError("无左侧条纹")
-    d = cdist([[r]], [[x] for x in tl])[0]
-    i = np.argmin(d)
-    if d[i]>th: raise ValueError("距离超限")
-    return t.index(tl[i])
+def match_benchmark_rightmost_to_target_left(benchmark_16_rightmost, target_centers, max_dist_threshold=50):
+    total_target = len(target_centers)
+    if total_target < 16:
+        raise ValueError(f"目标图片总条纹数不足16条")
+    target_left_mask = np.array(target_centers) <= benchmark_16_rightmost
+    target_left_centers = np.array(target_centers)[target_left_mask].tolist()
+    target_left_indices = np.where(target_left_mask)[0].tolist()
+    if not target_left_centers:
+        raise ValueError("目标中无左侧条纹")
+    target_left_array = np.array(target_left_centers).reshape(-1, 1)
+    dist_matrix = cdist(np.array([[benchmark_16_rightmost]]), target_left_array)
+    min_dist_idx_in_left = np.argmin(dist_matrix)
+    min_dist = dist_matrix[0][min_dist_idx_in_left]
+    if min_dist > max_dist_threshold:
+        raise ValueError("匹配距离超限")
+    target_match_original_idx = target_left_indices[min_dist_idx_in_left]
+    return target_match_original_idx
 
-def target_select_16_from_rightmost(t, i):
-    if i-15<0: raise ValueError("左向不足16条")
-    return t[i-15:i+1]
+def target_select_16_from_rightmost(target_centers, target_match_rightmost_idx):
+    target_16_start_idx = target_match_rightmost_idx - 15
+    target_16_end_idx = target_match_rightmost_idx + 1
+    if target_16_start_idx < 0:
+        raise ValueError("向左不足16条")
+    target_16 = target_centers[target_16_start_idx:target_16_end_idx]
+    return target_16
 
-def calculate_diffs_and_stats(b, t):
-    return np.mean([abs(b[i]-t[i]) for i in range(16)])
+def calculate_diffs_and_stats(benchmark_16, target_16):
+    diffs = [benchmark_16[i] - target_16[i] for i in range(16)]
+    abs_diffs = [abs(d) for d in diffs]
+    all_abs_avg = np.mean(abs_diffs)
+    return all_abs_avg
 
-def get_matched_image_pairs(a, b):
-    exts = ["*.png","*.jpg","*.jpeg","*.bmp"]
-    d1 = {os.path.basename(p):p for e in exts for p in glob(os.path.join(a,e))}
-    d2 = {os.path.basename(p):p for e in exts for p in glob(os.path.join(b,e))}
-    common = sorted(set(d1.keys()) & set(d2.keys()))
-    return [(d1[n], d2[n], n) for n in common]
+def get_group_pairs(image_folder):
+    img_extensions = ["*.png", "*.jpg", "*.jpeg", "*.bmp"]
+    img_paths = []
+    for ext in img_extensions:
+        img_paths.extend(glob(os.path.join(image_folder, ext)))
+    pattern = re.compile(r'(\d+)_(\d+)')
+    group_map = {}
+    for path in img_paths:
+        filename = os.path.basename(path)
+        match = pattern.search(filename)
+        if not match:
+            continue
+        group_num = int(match.group(1))
+        img_num = int(match.group(2))
+        if group_num not in group_map:
+            group_map[group_num] = {}
+        group_map[group_num][img_num] = path
+    pairs = []
+    for group_num in sorted(group_map.keys()):
+        item = group_map[group_num]
+        if 1 in item and 2 in item:
+            bench_path = item[1]
+            target_path = item[2]
+            pairs.append((bench_path, target_path, group_num))
+    if not pairs:
+        raise ValueError("未找到匹配的图片组")
+    return pairs
 
-def calculate_displacement(bench_folder, target_folder, min_width=10, max_dist=50):
-    pairs = get_matched_image_pairs(bench_folder, target_folder)
-    for idx, (bp, tp, name) in enumerate(pairs, 1):
+def process_mask_folder(mask_folder, min_width=10, max_dist_threshold=50):
+    if not os.path.exists(mask_folder):
+        print(f"文件夹不存在：{mask_folder}")
+        return
+    try:
+        image_pairs = get_group_pairs(mask_folder)
+    except Exception as e:
+        print(e)
+        return
+
+    print("\n位移计算结果：")
+    for bench_path, target_path, group_num in image_pairs:
         try:
-            bimg = cv2.imread(bp, 0)
-            timg = cv2.imread(tp, 0)
-            h, w = bimg.shape[:2]
-            cf = (800 * 4.5) / w
-            bc = detect_stripe_centers(bimg, min_width)
-            b16, br = select_16_benchmark_stripes_center(bc)
-            tc = detect_stripe_centers(timg, min_width)
-            ti = match_benchmark_rightmost_to_target_left(br, tc, max_dist)
-            t16 = target_select_16_from_rightmost(tc, ti)
-            avg = calculate_diffs_and_stats(b16, t16) * cf
-            print(f"{idx} {avg:.6f}")
-        except:
+            bench_img = cv2.imread(bench_path, cv2.IMREAD_GRAYSCALE)
+            if bench_img is None: continue
+            h, w = bench_img.shape[:2]
+            CONVERSION_FACTOR = (800 * 4.5) / w
+
+            bench_centers = detect_stripe_centers(bench_img, min_width)
+            bench_16, bench_16_rightmost = select_16_benchmark_stripes_center(bench_centers)
+
+            target_img = cv2.imread(target_path, cv2.IMREAD_GRAYSCALE)
+            if target_img is None: continue
+            target_centers = detect_stripe_centers(target_img, min_width)
+            target_match_idx = match_benchmark_rightmost_to_target_left(bench_16_rightmost, target_centers, max_dist_threshold)
+            target_16 = target_select_16_from_rightmost(target_centers, target_match_idx)
+
+            all_abs_avg = calculate_diffs_and_stats(bench_16, target_16) * CONVERSION_FACTOR
+            print(f"{group_num} {all_abs_avg:.6f}")
+        except Exception:
             continue
 
-# ===================== 一键运行配置 =====================
-if __name__ == "__main__":
-    # ========== 只需修改这里 ==========
-    IMAGE_DIR_BENCH   = r"E:/spy/images2_800"    # 基准原图文件夹
-    IMAGE_DIR_TARGET = r"E:/spy/images3_800"    # 目标原图文件夹
-    MASK_DIR_BENCH    = r"test_masks_4"    # 基准掩码输出
-    MASK_DIR_TARGET  = r"test_masks_5"    # 目标掩码输出
-    MODEL_PATH       = r"E:\spy\测试代码\save_weights_red_Axial_new\model_best.pth"
-    DEVICE           = "cuda" if torch.cuda.is_available() else "cpu"
-    # =================================
+if __name__ == '__main__':
 
-    # 加载模型
-    model = u2net_lite_4ch().to(DEVICE)
-    ckpt = torch.load(MODEL_PATH, map_location=DEVICE)
+    IMAGE_FOLDER    = r"E:\spy\800"             # 原图文件夹
+    MASK_OUTPUT_DIR = r"test_masks"             # 掩码保存路径
+    MODEL_PATH      = r"E:\spy\测试代码\save_weights_red_Axial_new\model_best.pth" # 模型路径
+    INPUT_SIZE      = [320, 320]
+
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print(f"使用设备：{device}")
+
+    model = u2net_lite_4ch().to(device)
+    ckpt = torch.load(MODEL_PATH, map_location=device)
     model.load_state_dict(ckpt["model"] if "model" in ckpt else ckpt, strict=False)
+    print(f"模型加载完成")
 
+    dataset = TestDataset4Ch(IMAGE_FOLDER, SODPresetEval4Ch(INPUT_SIZE))
+    loader = data.DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=TestDataset4Ch.collate_fn)
+    final_segmentation(model, loader, device, MASK_OUTPUT_DIR)
+    print(f"掩码已保存至：{MASK_OUTPUT_DIR}")
 
-    # 1. 分割基准图
-    predict_mask(model, IMAGE_DIR_BENCH, MASK_DIR_BENCH, DEVICE)
-    # 2. 分割目标图
-    predict_mask(model, IMAGE_DIR_TARGET, MASK_DIR_TARGET, DEVICE)
-    # 3. 计算位移（只打印序号+位移）
-    calculate_displacement(MASK_DIR_BENCH, MASK_DIR_TARGET)
+    # 2. 计算位移
+    process_mask_folder(
+        mask_folder=MASK_OUTPUT_DIR,
+        min_width=10,
+        max_dist_threshold=50
+    )

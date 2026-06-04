@@ -9,11 +9,11 @@ from tqdm import tqdm
 from typing import Union, List
 import math
 
+# 模型参数反序列化的需要
 class TrainingConfig:
     pass
-# ===================== Axial Attention模块 =====================
+
 class AxialAttention(nn.Module):
-    """轴向注意力机制（稳定版）"""
     def __init__(self, in_channels, axis='height'):
         super().__init__()
         self.axis = axis
@@ -51,27 +51,41 @@ class AxialAttention(nn.Module):
             out = out.reshape(B, W, C, H).permute(0, 2, 3, 1)
         return self.norm(out)
 
-# ===================== RedECA模块 =====================
-class RedECA_Module(nn.Module):
-    """红色增强的ECA模块"""
-    def __init__(self, channels, gamma=2, b=1):
+class LightGateAxial(nn.Module):
+    def __init__(self, c_skip: int, c_cond: int, r: int = 8):
         super().__init__()
-        t = int(abs((math.log(channels, 2) + b) / gamma))
-        k_size = t if t % 2 else t + 1
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv = nn.Conv1d(1, 1, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False)
-        self.sigmoid = nn.Sigmoid()
+        c_mid = max(8, c_skip // r)
+        self.chan_fc = nn.Sequential(
+            nn.Conv2d(c_skip + c_cond, c_mid, 1, bias=True),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(c_mid, c_skip, 1, bias=True)  # 有 bias
+        )
+        self.spa_reduce = nn.Conv2d(c_skip + c_cond, c_skip, 1, bias=True)
+        self.ax_h = AxialAttention(c_skip, axis='height', reduce_dim_div=16)
+        self.ax_w = AxialAttention(c_skip, axis='width',  reduce_dim_div=16)
+        self.spa_proj = nn.Conv2d(c_skip, 1, 1, bias=True)
 
-    def forward(self, x, red_map):
-        y = self.avg_pool(x)
-        red_weight = self.avg_pool(red_map)
-        y = y * (1 + red_weight)
-        y = self.conv(y.squeeze(-1).transpose(-1, -2))
-        y = y.transpose(-1, -2).unsqueeze(-1)
-        y = self.sigmoid(y)
-        return x * y.expand_as(x)
+        self.alpha_c = nn.Parameter(torch.tensor(0.0))
+        self.alpha_s = nn.Parameter(torch.tensor(0.0))
 
-# ===================== 基础模块 =====================
+        nn.init.zeros_(self.chan_fc[-1].bias)  # -> sigmoid≈0.5
+        nn.init.zeros_(self.spa_proj.bias)     # -> sigmoid≈0.5
+
+    def forward(self, skip, cond):
+        s_gap = F.adaptive_avg_pool2d(skip, 1)
+        c_gap = F.adaptive_avg_pool2d(cond, 1)
+        w_c = torch.sigmoid(self.chan_fc(torch.cat([s_gap, c_gap], dim=1)))  # [B,C,1,1]
+
+        z = self.spa_reduce(torch.cat([skip, cond], dim=1))
+        y = z + self.ax_h(z) + self.ax_w(z)
+        m_s = torch.sigmoid(self.spa_proj(y))  # [B,1,H,W]
+
+        gate_c = 1.0 + self.alpha_c * (2*w_c - 1.0)
+        gate_s = 1.0 + self.alpha_s * (2*m_s - 1.0)
+
+        out = skip * gate_c * gate_s
+        return out
+
 class ConvBNReLU(nn.Module):
     def __init__(self, in_ch: int, out_ch: int, kernel_size: int = 3, dilation: int = 1):
         super().__init__()
@@ -100,7 +114,6 @@ class UpConvBNReLU(ConvBNReLU):
             x1 = F.interpolate(x1, size=x2.shape[2:], mode='bilinear', align_corners=False)
         return self.relu(self.bn(self.conv(torch.cat([x1, x2], dim=1))))
 
-# ===================== RSU 模块 =====================
 class RSU(nn.Module):
     def __init__(self, height: int, in_ch: int, mid_ch: int, out_ch: int):
         super().__init__()
@@ -114,7 +127,7 @@ class RSU(nn.Module):
         encode_list.append(ConvBNReLU(mid_ch, mid_ch, dilation=2))
         self.encode_modules = nn.ModuleList(encode_list)
         self.decode_modules = nn.ModuleList(decode_list)
-        self.red_eca = RedECA_Module(out_ch)
+        self.red_eca = RedMask_Module(out_ch)
         self.axial_h = AxialAttention(out_ch, axis='height')
         self.axial_w = AxialAttention(out_ch, axis='width')
         self.ax_gamma_h = nn.Parameter(torch.zeros(1))
@@ -157,7 +170,7 @@ class RSU4F(nn.Module):
             ConvBNReLU(mid_ch * 2, mid_ch, dilation=2),
             ConvBNReLU(mid_ch * 2, out_ch)
         ])
-        self.red_eca = RedECA_Module(out_ch)
+        self.red_eca = RedMask_Module(out_ch)
         self.axial_h = AxialAttention(out_ch, axis='height')
         self.axial_w = AxialAttention(out_ch, axis='width')
         self.ax_gamma_h = nn.Parameter(torch.zeros(1))
@@ -185,7 +198,6 @@ class RSU4F(nn.Module):
         x = x + self.ax_gamma_h * self.axial_h(x) + self.ax_gamma_w * self.axial_w(x)
         return x
 
-# ===================== U2Net模型 =====================
 class U2Net(nn.Module):
     def __init__(self, cfg: dict, out_ch: int = 1):
         super().__init__()
@@ -253,7 +265,6 @@ def u2net_lite_4ch(out_ch: int = 1):
     }
     return U2Net(cfg, out_ch)
 
-# ===================== 4通道数据预处理 =====================
 class Compose:
     def __init__(self, transforms): self.transforms = transforms
     def __call__(self, image, target):
@@ -282,8 +293,27 @@ class ToTensorWithRedMask:
         red_mask = cv2.bitwise_or(mask1, mask2)
         return red_mask.astype(np.float32) / 255.0
 
+class RedMask_Module(nn.Module):
+    def __init__(self, channels, gamma=2, b=1):
+        super().__init__()
+        t = int(abs((math.log(channels, 2) + b) / gamma))
+        k_size = t if t % 2 else t + 1
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.conv = nn.Conv1d(1, 1, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x, red_map):
+        y = self.avg_pool(x)
+        red_weight = self.avg_pool(red_map)
+        y = y * (1 + red_weight)
+        y = self.conv(y.squeeze(-1).transpose(-1, -2))
+        y = y.transpose(-1, -2).unsqueeze(-1)
+        y = self.sigmoid(y)
+        return x * y.expand_as(x)
+
 class Resize4Ch:
-    def __init__(self, size): self.size = size if isinstance(size, (list, tuple)) else (size, size)
+    def __init__(self, size): 
+        self.size = size if isinstance(size, (list, tuple)) else (size, size)
     def __call__(self, image, target):
         rgb = image[:3]
         red = image[3:4]
@@ -307,7 +337,6 @@ class SODPresetEval4Ch:
         ])
     def __call__(self, img, target): return self.transforms(img, target)
 
-# ===================== 测试数据集 =====================
 def cat_list(images, fill_value=0):
     max_size = tuple(max(s) for s in zip(*[img.shape for img in images]))
     batch_shape = (len(images),) + max_size
@@ -335,7 +364,6 @@ class TestDataset4Ch(data.Dataset):
         imgs, _, fns, sizes = list(zip(*batch))
         return cat_list(imgs), torch.zeros(1), fns, sizes
 
-# ===================== 推理保存 =====================
 @torch.no_grad()
 def final_segmentation(model, data_loader, device, save_dir):
     model.eval()
@@ -349,7 +377,7 @@ def final_segmentation(model, data_loader, device, save_dir):
             pred = cv2.resize(pred, (w, h)) * 255
             cv2.imwrite(os.path.join(save_dir, f"{os.path.splitext(filenames[i])[0]}_pred.png"), pred.astype(np.uint8))
 
-# ===================== 测试配置（只需改这里） =====================
+# ===================== 测试配置 =====================
 TEST_CONFIG = {
     "device": "cuda:0" if torch.cuda.is_available() else "cpu",
     "test_dir": r"datasets/illumination/high",          # 测试图片路径
@@ -358,7 +386,7 @@ TEST_CONFIG = {
     "input_size": [320, 320]
 }
 
-# ===================== 主测试入口 =====================
+
 if __name__ == '__main__':
     cfg = TEST_CONFIG
     device = torch.device(cfg["device"])
