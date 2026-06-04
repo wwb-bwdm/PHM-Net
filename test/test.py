@@ -474,7 +474,7 @@ def get_group_pairs(image_folder):
         raise ValueError("未找到匹配的图片组")
     return pairs
 
-def process_mask_folder(mask_folder, min_width=10, max_dist_threshold=50):
+def process_mask_folder(mask_folder):
     if not os.path.exists(mask_folder):
         print(f"文件夹不存在：{mask_folder}")
         return
@@ -490,7 +490,9 @@ def process_mask_folder(mask_folder, min_width=10, max_dist_threshold=50):
             bench_img = cv2.imread(bench_path, cv2.IMREAD_GRAYSCALE)
             if bench_img is None: continue
             h, w = bench_img.shape[:2]
-            CONVERSION_FACTOR = (800 * 4.5) / w
+            conversion_factor = (800 * 4.5) / w
+            min_width = 10 / 800 * w
+            max_dist_threshold = 50 / 800 * w
 
             bench_centers = detect_stripe_centers(bench_img, min_width)
             bench_16, bench_16_rightmost = select_16_benchmark_stripes_center(bench_centers)
@@ -501,7 +503,7 @@ def process_mask_folder(mask_folder, min_width=10, max_dist_threshold=50):
             target_match_idx = match_benchmark_rightmost_to_target_left(bench_16_rightmost, target_centers, max_dist_threshold)
             target_16 = target_select_16_from_rightmost(target_centers, target_match_idx)
 
-            all_abs_avg = calculate_diffs_and_stats(bench_16, target_16) * CONVERSION_FACTOR
+            all_abs_avg = calculate_diffs_and_stats(bench_16, target_16) * conversion_factor
             print(f"{group_num} {all_abs_avg:.6f}")
         except Exception:
             continue
@@ -528,7 +530,5 @@ if __name__ == '__main__':
 
     # 2. 计算位移
     process_mask_folder(
-        mask_folder=MASK_OUTPUT_DIR,
-        min_width=10,
-        max_dist_threshold=50
+        mask_folder=MASK_OUTPUT_DIR
     )

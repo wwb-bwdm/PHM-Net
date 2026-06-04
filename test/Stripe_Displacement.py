@@ -124,7 +124,7 @@ def get_group_pairs(image_folder):
     return pairs
 
 
-def process_single_folder(image_folder, min_width=10, max_dist_threshold=50):
+def process_single_folder(image_folder):
     if not os.path.exists(image_folder):
         print(f"文件夹不存在：{image_folder}")
         return
@@ -143,7 +143,9 @@ def process_single_folder(image_folder, min_width=10, max_dist_threshold=50):
                 continue
 
             h, w = bench_img.shape[:2]
-            CONVERSION_FACTOR = (800 * 4.5) / w
+            conversion_factor = (800 * 4.5) / w
+            min_width = 10 / 800 * w
+            max_dist_threshold = 50 / 800 * w
 
             bench_centers = detect_stripe_centers(bench_img, min_width)
             bench_16, bench_16_rightmost = select_16_benchmark_stripes_center(bench_centers)
@@ -156,7 +158,7 @@ def process_single_folder(image_folder, min_width=10, max_dist_threshold=50):
                                                                         max_dist_threshold)
             target_16 = target_select_16_from_rightmost(target_centers, target_match_idx)
 
-            all_abs_avg = calculate_diffs_and_stats(bench_16, target_16) * CONVERSION_FACTOR
+            all_abs_avg = calculate_diffs_and_stats(bench_16, target_16) * conversion_factor
 
             print(f"{group_num} {all_abs_avg:.6f}")
 
@@ -168,11 +170,8 @@ if __name__ == "__main__":
 
     IMAGE_FOLDER = r"E:\spy\800" 
 
-    MIN_STRIPE_WIDTH = 10
-    MAX_MATCH_DIST = 50
+
 
     process_single_folder(
-        image_folder=IMAGE_FOLDER,
-        min_width=MIN_STRIPE_WIDTH,
-        max_dist_threshold=MAX_MATCH_DIST
+        image_folder=IMAGE_FOLDER
     )
