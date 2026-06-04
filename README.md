@@ -22,16 +22,22 @@ git clone https://github.com/wwb-bwdm/PHM-Net.git
 cd PHM-Net
 ```
 2.安装环境
+```bash
 pip install -r requirements.txt
+```
 ## 运行指令
+```bash
 python test.py
+```
 ## 项目目录
+```bash
 ├── train.py        # 训练脚本
 ├── test.py         # 测试脚本
 ├── requirements.txt
 ├── config/         # 参数配置
 ├── datasets/       # 数据集
 └── weights/        # 模型权重
+```
 ## 常见问题
 
 ## 相关链接
