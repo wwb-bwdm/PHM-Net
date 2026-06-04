@@ -4,13 +4,22 @@
 - Python：3.8.20
 - PyTorch：1.11.0+cu113
 - 操作系统：Windows
-## 项目开发准则
-1. 实验复现：代码严格依照论文算法实现，额外改进功能由配置开关控制。
-2. 解耦设计：超参统一写在配置文件，不在代码内硬编码。
+## 项目介绍
+本仓库为本论文对应算法开源代码，便于快速复现论文实验结果。
+
 ## 环境依赖
-
+主要依赖如下，完整依赖请查看 `requirements.txt`
+- PyTorch
+- torchvision
+- numpy
+- pandas
+- matplotlib
+- opencv-python
 ## 安装教程
-
+1. 克隆项目源码
+```bash
+git clone https://github.com/wwb-bwdm/PHM-Net.git
+cd PHM-Net
 ## 运行指令
 
 ## 项目目录
