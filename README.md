@@ -31,12 +31,20 @@ python test.py
 ```
 ## 项目目录
 ```bash
-├── train.py        # 训练脚本
-├── test.py         # 测试脚本
-├── requirements.txt
-├── config/         # 参数配置
-├── datasets/       # 数据集
-└── weights/        # 模型权重
+PHM-Net/
+├── dataset/
+│   ├── lux/                 # 光照扰动数据集
+│   ├── Pixels/              # 不同分辨率数据集
+│   ├── Temperature/         # 温度变化数据集
+│   └── Velocity/            # 不同运动速度数据集
+├── test/                    
+│   ├── mask_out.py          # 掩码生成
+│   ├── Stripe_Displacement.py # 掩码计算位移
+│   └── test.py              # 完整测试
+├── .gitignore
+├── LICENSE                  # 开源协议
+├── README.md                # 项目说明文档
+└── requirements.txt         # 项目环境依赖清单
 ```
 ## 常见问题
 
