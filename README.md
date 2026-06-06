@@ -31,29 +31,28 @@ pip install -r requirements.txt
 ```
 ## 项目目录
 PHM-Net/
-├── dataset/
-│   ├── Lux/                 # 光照扰动数据集：high强光 / low弱光
+├── Cross_Validation/
+│   ├── Illumination_intensity/  # 光照扰动数据集
 │   │   ├── high/
 │   │   └── low/
-│   ├── Pixels/              # 不同分辨率数据集：400×275 / 800×550
+│   ├── Image_resolution/        # 不同分辨率数据集
 │   │   ├── 400×275/
 │   │   └── 800×550/
-│   ├── Temperature/         # 不同环境温度数据集：17℃ / 23℃ / 26℃
+│   ├── Ambient_temperature/     # 不同环境温度数据集(℃)
 │   │   ├── 17/
 │   │   ├── 23/
 │   │   └── 26/
-│   └── Velocity/            # 不同速度数据集：30 / 50 / 80
-│       ├── 30/
+│   └── Motion_speed/            # 不同速度数据集
 │       ├── 50/
 │       └── 80/
-├── test/                    # 基线测试集
+├── Test/                    # 基线测试集
 ├── .gitignore               # git忽略配置
 ├── LICENSE                  # 项目开源协议
 ├── README.md                # 项目说明、环境、训练测试文档
 ├── requirements.txt         # Python环境依赖清单
-├── mask_out.py          # 掩码生成
-├── Stripe_Displacement.py # 掩码计算
-└── test.py              # 模型完整推理测试
+├── Mask_out.py              # 掩码生成
+├── Stripe_Displacement.py   # 掩码计算
+└── test.py                  # 模型完整推理测试
 ## 常见问题
 ### Q1：位移计算环节报错、匹配失败
 答：图像命名统一格式为``组号_序号.png``，例：1_1.png、1_2.png；同组规则：xx_1为基准参考图，xx_2为待测位移图，程序自动两两配对计算位移差值。后续我们会上传图片匹配更鲁棒的代码。
