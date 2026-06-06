@@ -1,68 +1,76 @@
 # PHM-Net
 
-## 适配运行版本
+## Compatible Runtime Version
 - Python：3.8.20
 - PyTorch：1.11.0+cu113
-- 操作系统：Windows
-## 项目介绍
-本仓库为本论文对应算法开源代码，便于快速复现论文实验结果。
+- Operating System：Windows
+## Project Introduction
+This repository contains the open-source code for the algorithm proposed in this paper, facilitating the rapid reproduction of experimental results.
 
-## 环境依赖
-主要依赖如下，完整依赖请查看 `requirements.txt`
+## Dependencies
+The main dependencies are listed below. For the complete list, please refer to `requirements.txt`
 - PyTorch
 - torchvision
 - numpy
 - pandas
 - matplotlib
 - opencv-python
-## 安装教程
-1. 克隆项目源码
+## Installation
+1. Clone the repository
 ```bash
 git clone https://github.com/wwb-bwdm/PHM-Net.git
 cd PHM-Net
 ```
-2.安装环境
+2.Install dependencies
 ```bash
 pip install -r requirements.txt
 ```
-## 运行
-当前版本暂未开发命令行参数启动模式，请使用 PyCharm / VSCode 打开项目文件夹，通过 IDE 直接运行对应脚本；后续迭代版本将补充命令行启动配置。
-## 项目目录
+## Usage
+The current version does not support command-line arguments. Please open the project folder in PyCharm / VSCode and run the corresponding scripts directly via the IDE. Command-line support will be added in future updates.
+## Project Structure
 ```
 PHM-Net/
 ├── Cross_Validation/
-│   ├── Illumination_intensity/  # 光照扰动数据集
+│   ├── Illumination_intensity/  # Illumination disturbance dataset
 │   │   ├── high/
 │   │   └── low/
-│   ├── Image_resolution/        # 不同分辨率数据集
+│   ├── Image_resolution/        # Different resolution dataset
 │   │   ├── 400×275/
 │   │   └── 800×550/
-│   ├── Ambient_temperature/     # 不同环境温度数据集(℃)
+│   ├── Ambient_temperature/     # Different ambient temperature dataset (℃)
 │   │   ├── 17/
 │   │   ├── 23/
 │   │   └── 26/
-│   └── Motion_speed/            # 不同速度数据集
+│   └── Motion_speed/            # Different motion speed dataset
 │       ├── 50/
 │       └── 80/
-├── Test/                    # 基线测试集
-├── .gitignore               # git忽略配置
-├── LICENSE                  # 项目开源协议
-├── README.md                # 项目说明、环境、训练测试文档
-├── requirements.txt         # Python环境依赖清单
-├── Mask_out.py              # 掩码生成
-├── Stripe_Displacement.py   # 掩码计算
-└── test.py                  # 模型完整推理测试
+├── Test/                    # Baseline test set
+├── .gitignore               # Git ignore configuration
+├── LICENSE                  # Open-source license
+├── README.md                # Project documentation
+├── requirements.txt         # Python dependency list
+├── Mask_out.py              # Mask generation
+├── Stripe_Displacement.py   # Displacement calculation
+└── test.py                   # Full model inference
 ```
-修改了部分文件夹命名
-## 常见问题
-### Q1：位移计算环节报错、匹配失败
-答：图像命名统一格式为`组号_序号.png`，例：`1_1.png`、`1_2.png`；同组规则：`xx_1`为基准参考图，`xx_2`为待测位移图，程序自动两两配对计算位移差值。后续我们会上传图片匹配更鲁棒的代码。
-### Q2：预训练权重加载失败
-答：权重存储路径禁止包含中文、空格、全角符号；
-Windows 系统读取权重建议使用原始字符串`r"D:\xxx\xxx.pth"`规避反斜杠转义报错；
-核对代码内配置路径与权重实际存放路径、文件名完全一致；权重文件损坏 / 缺失需重新下载。
-### Q3：CUDA显存溢出报错`out of memory`
-答：可以在配置中将运行设备改为`device="cpu"`使用 `CPU` 推理，或调低输入图片尺寸`input_size`。注意。调整输入尺寸可能会影响到模型性能。
-### Q5：OpenCV 读取图片为空
-答：图片存储路径、文件名可能使用了中文与特殊符号，请全程使用`纯英文+数字`命名。
-
+## Frequently Asked Questions
+### Q1: Errors or matching failures during displacement calculation
+A: Image files must follow the naming format: `groupID_serial.png`, e.g., `1_1.png`, `1_2.png`.
+- `xx_1`: Reference image (fixed)
+- `xx_2`: Target image (to be measured)
+The program automatically pairs images in the same group. A more robust matching version will be released later.
+### Q2: Failed to load pre-trained weights
+A:
+- Weight paths must not contain Chinese characters, spaces, or full-width symbols.
+- On Windows, use raw string r"D:\xxx\xxx.pth" to avoid escape errors.
+- Check that the path in the code matches the actual weight file location.
+- Re-download the weights if the file is corrupted or missing.
+### Q3: CUDA Out-of-Memory (OOM) error
+A:
+- Switch to device="cpu" for CPU inference.
+- Reduce the input_size of images.
+Note: Resizing images may affect model performance.
+### Q3: OpenCV cannot read images (empty result)
+A:
+- Image paths and filenames must use only English letters and numbers.
+- Avoid Chinese characters and special symbols.
