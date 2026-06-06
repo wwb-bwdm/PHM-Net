@@ -26,10 +26,9 @@ cd PHM-Net
 pip install -r requirements.txt
 ```
 ## 运行
-```
 当前版本暂未开发命令行参数启动模式，请使用 PyCharm / VSCode 打开项目文件夹，通过 IDE 直接运行对应脚本；后续迭代版本将补充命令行启动配置。
-```
 ## 项目目录
+```
 PHM-Net/
 ├── Cross_Validation/
 │   ├── Illumination_intensity/  # 光照扰动数据集
@@ -53,6 +52,7 @@ PHM-Net/
 ├── Mask_out.py              # 掩码生成
 ├── Stripe_Displacement.py   # 掩码计算
 └── test.py                  # 模型完整推理测试
+```
 ## 常见问题
 ### Q1：位移计算环节报错、匹配失败
 答：图像命名统一格式为``组号_序号.png``，例：1_1.png、1_2.png；同组规则：xx_1为基准参考图，xx_2为待测位移图，程序自动两两配对计算位移差值。后续我们会上传图片匹配更鲁棒的代码。
