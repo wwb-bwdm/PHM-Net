@@ -77,3 +77,6 @@ Note: Resizing images may affect model performance.
 A:
 - Image paths and filenames must use only English letters and numbers.
 - Avoid Chinese characters and special symbols.
+## Contact
+If you have any questions, please feel free to contact me via email:
+weiwenbin@mails.gdut.edu.cn
