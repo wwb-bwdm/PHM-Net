@@ -380,7 +380,7 @@ def final_segmentation(model, data_loader, device, save_dir):
 # ===================== 测试配置 =====================
 TEST_CONFIG = {
     "device": "cuda:0" if torch.cuda.is_available() else "cpu",
-    "test_dir": r"datasets/illumination/high",          # 测试图片路径
+    "test_dir": r"",          # 测试图片路径
     "model_path": r"weights\model_best.pth",  # 模型路径
     "output_dir": "./test_masks",            # 输出掩码路径
     "input_size": [320, 320]

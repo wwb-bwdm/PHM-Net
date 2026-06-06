@@ -528,7 +528,6 @@ if __name__ == '__main__':
     final_segmentation(model, loader, device, MASK_OUTPUT_DIR)
     print(f"掩码已保存至：{MASK_OUTPUT_DIR}")
 
-    # 2. 计算位移
     process_mask_folder(
         mask_folder=MASK_OUTPUT_DIR
     )
