@@ -377,11 +377,11 @@ def final_segmentation(model, data_loader, device, save_dir):
             pred = cv2.resize(pred, (w, h)) * 255
             cv2.imwrite(os.path.join(save_dir, f"{os.path.splitext(filenames[i])[0]}_pred.png"), pred.astype(np.uint8))
 
-# ===================== 测试配置 =====================
+
 TEST_CONFIG = {
     "device": "cuda:0" if torch.cuda.is_available() else "cpu",
-    "test_dir": r"",          # 测试图片路径
-    "model_path": r"weights\model_best.pth",  # 模型路径
+    "test_dir": r"Test",          # 测试图片路径
+    "model_path": r"Weights/PHM_best.pth",  # 模型路径
     "output_dir": "./test_masks",            # 输出掩码路径
     "input_size": [320, 320]
 }
@@ -392,16 +392,13 @@ if __name__ == '__main__':
     device = torch.device(cfg["device"])
     print(f"使用设备：{device}")
 
-    # 模型
     model = u2net_lite_4ch().to(device)
     ckpt = torch.load(cfg["model_path"], map_location=device)
     model.load_state_dict(ckpt["model"] if "model" in ckpt else ckpt, strict=False)
     print(f"加载模型：{cfg['model_path']}")
 
-    # 数据
     dataset = TestDataset4Ch(cfg["test_dir"], SODPresetEval4Ch(cfg["input_size"]))
     loader = data.DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=TestDataset4Ch.collate_fn)
 
-    # 推理
     final_segmentation(model, loader, device, cfg["output_dir"])
     print(f"推理完成！掩码保存至：{cfg['output_dir']}")
