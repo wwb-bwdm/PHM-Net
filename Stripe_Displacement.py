@@ -137,7 +137,6 @@ def run_single_folder_pipeline(folder):
         except Exception:
             continue
 
-
 if __name__ == "__main__":
     IMAGE_FOLDER = r"test_masks"
     run_single_folder_pipeline(IMAGE_FOLDER)
