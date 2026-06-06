@@ -38,11 +38,11 @@ PHM-Net/
 │   ├── Resolutions/                      # Different resolution dataset
 │   │   ├── 400_275/
 │   │   └── 800_550/
-│   ├── Temperatures/                    # Different ambient temperature dataset (℃)
+│   ├── Temperatures/                     # Different ambient temperature dataset (℃)
 │   │   ├── 17_Degrees_Celsius/
 │   │   ├── 23_Degrees_Celsius/
 │   │   └── 26_Degrees_Celsius/
-│   └── Speeds/                          # Different motion speed dataset
+│   └── Speeds/                           # Different motion speed dataset
 │       ├── 30_Micrometers_Per_Second/
 │       ├── 50_Micrometers_Per_Second/
 │       └── 80_Micrometers_Per_Second/
