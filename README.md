@@ -30,28 +30,31 @@ The current version does not support command-line arguments. Please open the pro
 ## Project Structure
 ```
 PHM-Net/
-├── Cross_Validation/
-│   ├── Illumination_intensity/  # Illumination disturbance dataset
-│   │   ├── high/
-│   │   └── low/
-│   ├── Image_resolution/        # Different resolution dataset
-│   │   ├── 400×275/
-│   │   └── 800×550/
-│   ├── Ambient_temperature/     # Different ambient temperature dataset (℃)
-│   │   ├── 17/
-│   │   ├── 23/
-│   │   └── 26/
-│   └── Motion_speed/            # Different motion speed dataset
-│       ├── 50/
-│       └── 80/
-├── Test/                    # Baseline test set
-├── .gitignore               # Git ignore configuration
-├── LICENSE                  # Open-source license
-├── README.md                # Project documentation
-├── requirements.txt         # Python dependency list
-├── Mask_out.py              # Mask generation
-├── Stripe_Displacement.py   # Displacement calculation
-└── test.py                   # Full model inference
+├── PHM-Net_Baseline_Test/                # Baseline test set
+├── PHM-Net_Generalization_Test/
+│   ├── Intensities/                      # Illumination disturbance dataset
+│   │   ├── High_Intensity/
+│   │   └── Low_Intensity/
+│   ├── Resolutions/                      # Different resolution dataset
+│   │   ├── 400_275/
+│   │   └── 800_550/
+│   ├── Temperatures/                    # Different ambient temperature dataset (℃)
+│   │   ├── 17_Degrees_Celsius/
+│   │   ├── 23_Degrees_Celsius/
+│   │   └── 26_Degrees_Celsius/
+│   └── Speeds/                          # Different motion speed dataset
+│       ├── 30_Micrometers_Per_Second/
+│       ├── 50_Micrometers_Per_Second/
+│       └── 80_Micrometers_Per_Second/
+├── PHM-Net_Weights/                      # Model checkpoint storage
+│   └── PHM_best.pth                      # Best trained weight file
+├── .gitignore                            # Git ignore configuration
+├── LICENSE                               # Open-source license
+├── README.md                             # Project documentation
+├── requirements.txt                      # Python dependency list
+├── MaskOut.py                            # Mask generation
+├── Stripe_Displacement.py                # Stripe displacement calculation
+└── Test.py                               # Full model inference script
 ```
 ## Frequently Asked Questions
 ### Q1: Errors or matching failures during displacement calculation
