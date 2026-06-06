@@ -9,7 +9,7 @@ from tqdm import tqdm
 from typing import Union, List
 import math
 
-# 模型参数反序列化的需要
+# Required for model parameter deserialization
 class TrainingConfig:
     pass
 
@@ -58,27 +58,27 @@ class LightGateAxial(nn.Module):
         self.chan_fc = nn.Sequential(
             nn.Conv2d(c_skip + c_cond, c_mid, 1, bias=True),
             nn.ReLU(inplace=True),
-            nn.Conv2d(c_mid, c_skip, 1, bias=True)  # 有 bias
+            nn.Conv2d(c_mid, c_skip, 1, bias=True)
         )
         self.spa_reduce = nn.Conv2d(c_skip + c_cond, c_skip, 1, bias=True)
-        self.ax_h = AxialAttention(c_skip, axis='height', reduce_dim_div=16)
-        self.ax_w = AxialAttention(c_skip, axis='width',  reduce_dim_div=16)
+        self.ax_h = AxialAttention(c_skip, axis='height')
+        self.ax_w = AxialAttention(c_skip, axis='width')
         self.spa_proj = nn.Conv2d(c_skip, 1, 1, bias=True)
 
         self.alpha_c = nn.Parameter(torch.tensor(0.0))
         self.alpha_s = nn.Parameter(torch.tensor(0.0))
 
-        nn.init.zeros_(self.chan_fc[-1].bias)  # -> sigmoid≈0.5
-        nn.init.zeros_(self.spa_proj.bias)     # -> sigmoid≈0.5
+        nn.init.zeros_(self.chan_fc[-1].bias)
+        nn.init.zeros_(self.spa_proj.bias)
 
     def forward(self, skip, cond):
         s_gap = F.adaptive_avg_pool2d(skip, 1)
         c_gap = F.adaptive_avg_pool2d(cond, 1)
-        w_c = torch.sigmoid(self.chan_fc(torch.cat([s_gap, c_gap], dim=1)))  # [B,C,1,1]
+        w_c = torch.sigmoid(self.chan_fc(torch.cat([s_gap, c_gap], dim=1)))
 
         z = self.spa_reduce(torch.cat([skip, cond], dim=1))
         y = z + self.ax_h(z) + self.ax_w(z)
-        m_s = torch.sigmoid(self.spa_proj(y))  # [B,1,H,W]
+        m_s = torch.sigmoid(self.spa_proj(y))
 
         gate_c = 1.0 + self.alpha_c * (2*w_c - 1.0)
         gate_s = 1.0 + self.alpha_s * (2*m_s - 1.0)
@@ -368,7 +368,7 @@ class TestDataset4Ch(data.Dataset):
 def final_segmentation(model, data_loader, device, save_dir):
     model.eval()
     os.makedirs(save_dir, exist_ok=True)
-    for images, _, filenames, sizes in tqdm(data_loader, desc="测试推理"):
+    for images, _, filenames, sizes in tqdm(data_loader, desc="Inferencing"):
         images = images.to(device)
         preds = model(images)
         h, w = sizes[0]
@@ -380,9 +380,9 @@ def final_segmentation(model, data_loader, device, save_dir):
 
 TEST_CONFIG = {
     "device": "cuda:0" if torch.cuda.is_available() else "cpu",
-    "test_dir": r"Test",          # 测试图片路径
-    "model_path": r"Weights/PHM_best.pth",  # 模型路径
-    "output_dir": "./test_masks",            # 输出掩码路径
+    "test_dir": r"Test",
+    "model_path": r"Weights/PHM_best.pth",
+    "output_dir": "./test_masks",
     "input_size": [320, 320]
 }
 
@@ -390,15 +390,15 @@ TEST_CONFIG = {
 if __name__ == '__main__':
     cfg = TEST_CONFIG
     device = torch.device(cfg["device"])
-    print(f"使用设备：{device}")
+    print(f"Using device: {device}")
 
     model = u2net_lite_4ch().to(device)
     ckpt = torch.load(cfg["model_path"], map_location=device)
     model.load_state_dict(ckpt["model"] if "model" in ckpt else ckpt, strict=False)
-    print(f"加载模型：{cfg['model_path']}")
+    print(f"Loaded model: {cfg['model_path']}")
 
     dataset = TestDataset4Ch(cfg["test_dir"], SODPresetEval4Ch(cfg["input_size"]))
     loader = data.DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=TestDataset4Ch.collate_fn)
 
     final_segmentation(model, loader, device, cfg["output_dir"])
-    print(f"推理完成！掩码保存至：{cfg['output_dir']}")
+    print(f"Inference completed! Masks saved to: {cfg['output_dir']}")

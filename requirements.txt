@@ -3,26 +3,26 @@ torch==1.11.0+cu113
 torchaudio==0.11.0+cu113
 torchvision==0.12.0+cu113
 
-# 深度学习工具
+# Deep Learning Utilities
 ultralytics==8.4.9
 ultralytics-thop==2.0.18
 
-# 计算机视觉处理
+# Computer Vision Processing
 opencv-python==4.13.0.90
 Pillow==10.4.0
 pycocotools==2.0.7
 shapely==2.0.7
 
-# 数据处理
+# Data Processing
 numpy==1.24.3
 pandas==2.0.3
 scipy==1.9.3
 scikit-learn==1.2.2
 
-# 可视化
+# Visualization
 matplotlib==3.7.2
 
-# 工具
+# Tools
 tqdm==4.65.2
 requests==2.28.1
 PyYAML==6.0.3
