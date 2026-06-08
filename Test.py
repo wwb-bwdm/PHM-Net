@@ -504,7 +504,7 @@ def run_single_folder_pipeline(folder):
             diffs = [b - t for b, t in zip(bench16, target16)]
             displacement = calculate_filtered_displacement(diffs, CONVERSION)
 
-            print(f"{index} {displacement:.6f}")
+            print(f"{index} {displacement:.3f}")
             index += 1
 
         except Exception:

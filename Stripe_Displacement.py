@@ -131,7 +131,7 @@ def run_single_folder_pipeline(folder):
 
             displacement = calculate_filtered_displacement(diffs, CONVERSION)
 
-            print(f"{index} {displacement:.6f}")
+            print(f"{index} {displacement:.3f}")
             index += 1
 
         except Exception:
